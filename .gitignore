@@ -1,6 +1,35 @@
-# Ignore Visual Studio configuration files
+# ===== Visual Studio =====
 .vs/
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
+
+# Build folders
+Debug/
+Release/
+x64/
+x86/
+*/x64/
+*/x86/
+
+# IntelliSense / VS cache
+*.VC.db
+*.VC.opendb
+ipch/
+
+# ===== CUDA / NVCC =====
+*.cu.obj
+*.exp
+*.lib
+*.ptx
+*.cubin
+
+# ===== General =====
+*.log
+*.tmp
+*.cache
+
+# OS junk
+.DS_Store
+Thumbs.db
