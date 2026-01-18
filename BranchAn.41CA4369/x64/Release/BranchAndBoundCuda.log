@@ -1,0 +1,13 @@
+﻿  Compiling CUDA source file BnB_GPU.cu...
+  
+  C:\Users\filip\Source\Repos\BranchAndBoundCuda>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\bin\nvcc.exe" -gencode=arch=compute_75,code=\"sm_75,compute_75\" --use-local-env -ccbin "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64" -x cu   -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\include"     --keep-dir BranchAn.41CA4369\x64\Release  -maxrregcount=0    --machine 64 --compile -cudart hybrid    -DWIN32 -DWIN64 -DNDEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /O2 /FS   /MD " -Xcompiler "/FdBranchAn.41CA4369\x64\Release\vc143.pdb" -o C:\Users\filip\source\repos\BranchAndBoundCuda\BranchAn.41CA4369\x64\Release\BnB_GPU.cu.obj "C:\Users\filip\source\repos\BranchAndBoundCuda\BnB_GPU.cu" 
+  BnB_GPU.cu
+  tmpxft_00005364_00000000-7_BnB_GPU.cudafe1.cpp
+     Trwa tworzenie biblioteki C:\Users\filip\Source\Repos\BranchAndBoundCuda\x64\Release\BranchAndBoundCuda.lib i obiektu C:\Users\filip\Source\Repos\BranchAndBoundCuda\x64\Release\BranchAndBoundCuda.exp
+LINK : warning LNK4098: domyślna biblioteka „LIBCMT” powoduje konflikt z innymi bibliotekami; użyj opcji /NODEFAULTLIB:biblioteka
+  Trwa generowanie kodu
+  35 of 415 functions ( 8.4%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    2 functions had inline decision re-evaluated but remain unchanged
+  Zakończono generowanie kodu
+  BranchAndBoundCuda.vcxproj -> C:\Users\filip\Source\Repos\BranchAndBoundCuda\x64\Release\BranchAndBoundCuda.exe

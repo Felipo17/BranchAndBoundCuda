@@ -1,0 +1,3 @@
+﻿  Main.cpp
+C:\Users\filip\Source\Repos\BranchAndBoundCuda\Main.cpp(46,19): warning C4244: "=": konwersja z "double" do "int", możliwa utrata danych
+  BranchAndBoundCuda.vcxproj -> C:\Users\filip\Source\Repos\BranchAndBoundCuda\x64\Debug\BranchAndBoundCuda.exe

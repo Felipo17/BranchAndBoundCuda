@@ -91,7 +91,7 @@ int main() {
     const int NUM_INSTANCES = 15;
     const int REPEAT_COUNT = 1;
 
-    vector<int> problemSizes = { 20 };
+    vector<int> problemSizes = { 25 };
     vector<DataType> types = { STRONGLY_CORRELATED };
     vector<int> threadCounts = { 12 };
 
@@ -124,16 +124,16 @@ int main() {
                 for (int r = 0; r < REPEAT_COUNT; r++) {
 
                     // Sekwencyjny
-                    instSeqTime += measureTime([&]() { solveSequential(data); });
+                    //instSeqTime += measureTime([&]() { solveSequential(data); });
 
                     // Zoptymalizowany
-                    instOptTime += measureTime([&]() { solveSequentialOptimized(data); });
+                    //instOptTime += measureTime([&]() { solveSequentialOptimized(data); });
 
                     // Równoleg³y dla ka¿dej liczby w¹tków
-                    for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
+                    /*for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
                         omp_set_num_threads(threadCounts[t_idx]);
                         instParTimes[t_idx] += measureTime([&]() { solveParallel(data); });
-                    }
+                    }*/
 
                     // GPU
                     instGPUTime += measureTime([&]() { solveGPU(data); });

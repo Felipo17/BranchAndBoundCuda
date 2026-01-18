@@ -1,139 +1,213 @@
 ﻿#include "Common.h"
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
+
 #include <vector>
-#include <cmath>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <algorithm>
+#include <cstdint>
 
-#define CHECK_CUDA(err) if (err != cudaSuccess) { \
-	printf("CUDA Error: %s (line %d)\n", cudaGetErrorString(err), __LINE__); \
-	exit(1); \
+// Sprawdzanie błędów CUDA
+#define CHECK_CUDA(err) do { \
+    cudaError_t _e = (err); \
+    if (_e != cudaSuccess) { \
+        printf("CUDA Error: %s (line %d)\n", cudaGetErrorString(_e), __LINE__); \
+        std::exit(1); \
+    } \
+} while(0)
+
+/*
+Kernel GPU generujący wszystkie możliwe podzbiory dla danej połowy problemu, każdy wątek odpowiada dokładnie jednemu podzbiorowi (idx wątku traktowany jako maska bitowa)
+Liczy sumę wag i wartości na podstawie ustawionych bitów. 
+*/ 
+__global__ void genSubsetsKernel(
+    const int* weights,
+    const int* values,
+    int m,
+    int* outW,
+    int* outV
+) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Łączna liczba podzbiorów = 2^m
+    int total = 1 << m;
+    if (tid >= total) return;
+
+    int w = 0;
+    int v = 0;
+
+    // Iteracja po bitach maski
+    // Jeśli dany bit jest ustawiony, element należy do podzbioru
+    for (int i = 0; i < m; i++) {
+        if (tid & (1 << i)) {
+            w += weights[i];
+            v += values[i];
+        }
+    }
+
+    // Zapis wyników do pamięci globalnej
+    outW[tid] = w;
+    outV[tid] = v;
 }
 
-struct GPUState {
-	int idx;
-	int value;
-	int weight;
+// Pomocnicza struktura do sortowania prawej połowy
+struct WV {
+    int w;
+    int v;
 };
 
-__device__ int upperBound(int idx, int currentValue, int currentWeight, int C, const int* weights, const int* values, const double* ratios, int n) {
-	int remainingCap = C - currentWeight;
-	double bound = currentValue;
 
-	for (int i = idx; i < n; i++) {
-		if (weights[i] <= remainingCap) {
-			remainingCap -= weights[i];
-			bound += values[i];
-		}
-		else {
-			bound += ratios[i] * remainingCap;
-			break;
-		}
-	}
+// Wyszukiwanie binarne największego indeksu, używane do dobrania najlepszego kompatybilnego podzbioru prawej połowy przy zadanym limicie wagi
 
-	return (int)bound;
+
+static int upperBoundWeightIndex(const std::vector<WV>& arr, int maxW) {
+    int lo = 0, hi = (int)arr.size() - 1;
+    int ans = -1;
+    while (lo <= hi) {
+        int mid = (lo + hi) >> 1;
+        if (arr[mid].w <= maxW) {
+            ans = mid;
+            lo = mid + 1;
+        }
+        else {
+            hi = mid - 1;
+        }
+    }
+    return ans;
 }
-
-__global__ void gpuKernel(GPUState* partialStates, int numStates, int C, const int* weights, const int* values, const double* ratios, int n, int* results) {
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid >= numStates) return;
-
-	GPUState state = partialStates[tid];
-	int best = 0;
-
-	const int maxDepth = 1 << (n - state.idx);
-
-	for (int mask = 0; mask < maxDepth; mask++) {
-		int currVal = state.value;
-		int currW = state.weight;
-
-		for (int i = 0; i < (n - state.idx); i++) {
-			if (mask & (1 << i)) {
-				int idx = state.idx + i;
-				currW += weights[idx];
-				if (currW > C) break;
-				currVal += values[idx];
-			}
-		}
-
-		if (currW <= C && currVal > best) {
-			best = currVal;
-		}
-	}
-
-	results[tid] = best;
-}
-
+/*
+Główna funkcja rozwiązujaca problem
+GPU generuje wszystkie podzbiory lewej i prawej połowy problemu oraz wykonuje niezależne obliczenia sum
+CPU filtruje i sortuje wyniki, wykonuje wyszukiwanie binarne i łączenie wyników
+*/
 int solveGPU(const ProblemData& data) {
-	const int prefixDepth = 10;
-	if (data.n - prefixDepth > 22) {
-		printf("Za duży problem dla GPU (max n - prefixDepth = 22). \n");
-		return -1;
-	}
+    const int n = data.n;
+    if (n <= 0) return 0;
 
-	int numStates = 1 << prefixDepth;
-	std::vector<GPUState> states(numStates);
+    // Podział na połowy
+    const int nL = n / 2;
+    const int nR = n - nL;
 
-	for (int i = 0; i < numStates; ++i) {
-		int weight = 0;
-		int value = 0; 
-		for (int j = 0; j < prefixDepth; ++j) {
-			if (i & (1 << j)) {
-				weight += data.items[j].weight;
-				value += data.items[j].value;
-			}
-		}
-		states[i] = { prefixDepth, value, weight };
-	}
+    const int sizeL = 1 << nL;
+    const int sizeR = 1 << nR;
 
-	// Dane do GPU
-	std::vector<int> h_weights(data.n), h_values(data.n);
-	std::vector<double> h_ratios(data.n);
-	for (int i = 0; i < data.n; i++) {
-		h_weights[i] = data.items[i].weight;
-		h_values[i] = data.items[i].value;
-		h_ratios[i] = data.items[i].ratio;
-	}
+    // Przygotowanie danych wejściowych dla GPU
+    std::vector<int> h_wL(nL), h_vL(nL);
+    std::vector<int> h_wR(nR), h_vR(nR);
 
-	// Alokacja GPU
-	GPUState* d_states;
-	int* d_weights;
-	int* d_values;
-	double* d_ratios;
-	int* d_results;
+    for (int i = 0; i < nL; i++) {
+        h_wL[i] = data.items[i].weight;
+        h_vL[i] = data.items[i].value;
+    }
+    for (int i = 0; i < nR; i++) {
+        h_wR[i] = data.items[nL + i].weight;
+        h_vR[i] = data.items[nL + i].value;
+    }
 
-	CHECK_CUDA(cudaMalloc(&d_states, numStates * sizeof(GPUState)));
-	CHECK_CUDA(cudaMalloc(&d_weights, data.n * sizeof(int)));
-	CHECK_CUDA(cudaMalloc(&d_values, data.n * sizeof(int)));
-	CHECK_CUDA(cudaMalloc(&d_ratios, data.n * sizeof(double)));
-	CHECK_CUDA(cudaMalloc(&d_results, numStates * sizeof(int)));
+    // Bufory dla GPU
+    int* d_w = nullptr, * d_v = nullptr;
+    int* d_outWL = nullptr, * d_outVL = nullptr;
+    int* d_outWR = nullptr, * d_outVR = nullptr;
 
-	// Kopiowanie danych
-	CHECK_CUDA(cudaMemcpy(d_states, states.data(), numStates * sizeof(GPUState), cudaMemcpyHostToDevice));
-	CHECK_CUDA(cudaMemcpy(d_weights, h_weights.data(), data.n * sizeof(int), cudaMemcpyHostToDevice));
-	CHECK_CUDA(cudaMemcpy(d_values, h_values.data(), data.n * sizeof(int), cudaMemcpyHostToDevice));
-	CHECK_CUDA(cudaMemcpy(d_ratios, h_ratios.data(), data.n * sizeof(double), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMalloc(&d_w, sizeof(int) * std::max(nL, nR)));
+    CHECK_CUDA(cudaMalloc(&d_v, sizeof(int) * std::max(nL, nR)));
 
-	// Launch kernela
-	int threadsPerBlock = 256;
-	int blocks = (numStates + threadsPerBlock - 1) / threadsPerBlock;
+    CHECK_CUDA(cudaMalloc(&d_outWL, sizeof(int) * sizeL));
+    CHECK_CUDA(cudaMalloc(&d_outVL, sizeof(int) * sizeL));
+    CHECK_CUDA(cudaMalloc(&d_outWR, sizeof(int) * sizeR));
+    CHECK_CUDA(cudaMalloc(&d_outVR, sizeof(int) * sizeR));
 
-	gpuKernel<<<blocks, threadsPerBlock>>>(d_states, numStates, (int)data.C, d_weights, d_values, d_ratios, data.n, d_results);
+    // Generowanie podzbiorów lewej połowy
+    CHECK_CUDA(cudaMemcpy(d_w, h_wL.data(), sizeof(int) * nL, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(d_v, h_vL.data(), sizeof(int) * nL, cudaMemcpyHostToDevice));
 
-	CHECK_CUDA(cudaDeviceSynchronize());
+    {
+        int threads = 256;
+        int blocks = (sizeL + threads - 1) / threads;
+        genSubsetsKernel << <blocks, threads >> > (d_w, d_v, nL, d_outWL, d_outVL);
+        CHECK_CUDA(cudaGetLastError());
+    }
 
-	// Wyniki
-	std::vector<int> h_results(numStates);
-	CHECK_CUDA(cudaMemcpy(h_results.data(), d_results, numStates * sizeof(int), cudaMemcpyDeviceToHost));
+    // Generowanie podzbiorów prawej połowy
+    CHECK_CUDA(cudaMemcpy(d_w, h_wR.data(), sizeof(int) * nR, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(d_v, h_vR.data(), sizeof(int) * nR, cudaMemcpyHostToDevice));
 
-	cudaFree(d_states);
-	cudaFree(d_weights);
-	cudaFree(d_values);
-	cudaFree(d_ratios);
-	cudaFree(d_results);
+    {
+        int threads = 256;
+        int blocks = (sizeR + threads - 1) / threads;
+        genSubsetsKernel << <blocks, threads >> > (d_w, d_v, nR, d_outWR, d_outVR);
+        CHECK_CUDA(cudaGetLastError());
+    }
 
-	// zwracanie najlepszego wyniku
-	return *std::max_element(h_results.begin(), h_results.end());
+    // Synchronizacja, gdzie GPU kończy generowanie danych
+    CHECK_CUDA(cudaDeviceSynchronize());
+
+    // Kopiowanie wyników z GPU na CPU
+    std::vector<int> h_outWL(sizeL), h_outVL(sizeL);
+    std::vector<int> h_outWR(sizeR), h_outVR(sizeR);
+
+    CHECK_CUDA(cudaMemcpy(h_outWL.data(), d_outWL, sizeof(int) * sizeL, cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(h_outVL.data(), d_outVL, sizeof(int) * sizeL, cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(h_outWR.data(), d_outWR, sizeof(int) * sizeR, cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(h_outVR.data(), d_outVR, sizeof(int) * sizeR, cudaMemcpyDeviceToHost));
+
+    // Zwonienie pamięci GPU
+    cudaFree(d_w);
+    cudaFree(d_v);
+    cudaFree(d_outWL);
+    cudaFree(d_outVL);
+    cudaFree(d_outWR);
+    cudaFree(d_outVR);
+
+    const int C = (int)data.C;
+
+    // Budowanie listy podzbiorów prawej połowy, które nie przekraczają pojemności
+    std::vector<WV> right;
+    right.reserve(sizeR);
+    for (int i = 0; i < sizeR; i++) {
+        int w = h_outWR[i];
+        if (w <= C) {
+            right.push_back({ w, h_outVR[i] });
+        
+    }
+
+    // Sortuj po wadze rosnąco
+    std::sort(right.begin(), right.end(), [](const WV& a, const WV& b) {
+        if (a.w != b.w) return a.w < b.w;
+        return a.v > b.v;
+        });
+
+    // Kompresja: dla rosnącej wagi zostawia tylko najlepsze wartości
+    std::vector<WV> rightComp;
+    rightComp.reserve(right.size());
+
+    int bestV = -1;
+    for (size_t i = 0; i < right.size(); i++) {
+        if (right[i].v > bestV) {
+            bestV = right[i].v;
+            rightComp.push_back(right[i]);
+        }
+    }
+
+    // Łączenie wyników lewej i prawej połowy
+    int best = 0;
+    for (int i = 0; i < sizeL; i++) {
+        int wL = h_outWL[i];
+        if (wL > C) continue;
+
+        int vL = h_outVL[i];
+        int remaining = C - wL;
+
+        int idx = upperBoundWeightIndex(rightComp, remaining);
+        if (idx >= 0) {
+            int cand = vL + rightComp[idx].v;
+            if (cand > best) best = cand;
+        }
+        else {
+            if (vL > best) best = vL;
+        }
+    }
+
+    return best;
 }
