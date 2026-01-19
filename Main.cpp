@@ -1,5 +1,6 @@
 #include "Common.h"
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <algorithm>
 #include <chrono>
@@ -55,7 +56,7 @@ ProblemData generateProblem(int n, DataType type, int seed = 42) {
 
     data.C = totalWeight * 0.5;
 
-    // Sortowanie malej¹co po ratio
+    // Sortowanie malejaco po ratio
     sort(data.items.begin(), data.items.end(),
         [](const Item& a, const Item& b) {
             return a.ratio > b.ratio;
@@ -64,7 +65,7 @@ ProblemData generateProblem(int n, DataType type, int seed = 42) {
     return data;
 }
 
-// Funkcja mierz¹ca czas wykonania
+// Funkcja mierzaca czas wykonania
 template <typename Func>
 double measureTime(Func func) {
     auto start = chrono::high_resolution_clock::now();
@@ -77,36 +78,51 @@ double measureTime(Func func) {
 static string typeToString(DataType t) {
     switch (t) {
     case UNCORRELATED: return "uncorrelated";
-    case WEAKLY_CORRELATED: return "weakly correlated";
-    case STRONGLY_CORRELATED: return "strongly correlated";
+    case WEAKLY_CORRELATED: return "weakly_correlated";
+    case STRONGLY_CORRELATED: return "strongly_correlated";
     default: return "unknown";
     }
 }
+
+struct TestConfig {
+    int n;
+    int instances;
+    int repeats;
+};
 
 int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    // PARAMETRY BADANIA
-    const int NUM_INSTANCES = 15;
-    const int REPEAT_COUNT = 1;
+    // Otwarcie pliku do zapisu wynikow
+    ofstream csvFile("results.csv");
+    csvFile << "Size,Type,InstanceID,Repetition,Algorithm,Threads,TimeMS\n";
 
-    vector<int> problemSizes = { 20 };
+    // PARAMETRY BADANIA
+    vector<TestConfig> configs = {
+        {25, 50, 1}, {30, 50, 1},
+        {32, 20, 1}, {35, 20, 1},
+        {38, 10, 1}, {40, 10, 1}
+    };
+
     vector<DataType> types = { STRONGLY_CORRELATED };
     vector<int> threadCounts = { 12 };
 
     cout << fixed << setprecision(5);
-    cout << "Liczba roznych instancji danych: " << NUM_INSTANCES << "\n";
-    cout << "Liczba powtorzen dla instancji:    " << REPEAT_COUNT << "\n";
     cout << "Testowane liczby watkow: ";
     for (int t : threadCounts) cout << t << " ";
     cout << "\n\n";
 
     for (auto type : types) {
-        cout << "typ danych: " << typeToString(type) << "\n";
+        string typeStr = typeToString(type);
+        cout << "typ danych: " << typeStr << "\n";
 
-        for (int n : problemSizes) {
-            cout << "\n[Rozmiar N = " << n << "]\n";
+        for (const auto& config : configs) {
+            int n = config.n;
+            int NUM_INSTANCES = config.instances;
+            int REPEAT_COUNT = config.repeats;
+
+            cout << "\n[Rozmiar N = " << n << " | Instancji: " << NUM_INSTANCES << " | Powtorzen: " << REPEAT_COUNT << "]\n";
 
             double globalSeqSum = 0;
             double globalOptSum = 0;
@@ -124,19 +140,29 @@ int main() {
                 for (int r = 0; r < REPEAT_COUNT; r++) {
 
                     // Sekwencyjny
-                    instSeqTime += measureTime([&]() { solveSequential(data); });
+                    double tSeq = measureTime([&]() { solveSequential(data); });
+                    instSeqTime += tSeq;
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";
 
-                    // Zoptymalizowany
-                    instOptTime += measureTime([&]() { solveSequentialOptimized(data); });
+                    // Sekwencyjny Zoptymalizowany
+                    double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
+                    instOptTime += tOpt;
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";
 
-                    // Równoleg³y dla ka¿dej liczby w¹tków
-                    for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
-                        omp_set_num_threads(threadCounts[t_idx]);
-                        instParTimes[t_idx] += measureTime([&]() { solveParallel(data); });
-                    }
+                    // Równolegly
+                    /*for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
+                        int th = threadCounts[t_idx];
+                        omp_set_num_threads(th);
+
+                        double tPar = measureTime([&]() { solveParallel(data); });
+                        instParTimes[t_idx] += tPar;
+                        csvFile << n << "," << typeStr << "," << i << "," << r << ",Parallel," << th << "," << tPar << "\n";
+                    }*/
 
                     // GPU
-                    instGPUTime += measureTime([&]() { solveGPU(data); });
+                    double tGPU = measureTime([&]() { solveGPU(data); });
+                    instGPUTime += tGPU;
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
                 }
 
                 double avgInstSeq = instSeqTime / REPEAT_COUNT;
@@ -156,17 +182,19 @@ int main() {
                 cout << " | GPU =" << (instGPUTime / REPEAT_COUNT) << "ms\n";
             }
             cout << "SREDNIA:\n";
-            cout << "Seq:     " << globalSeqSum / NUM_INSTANCES << " ms\n";
-            cout << "SeqOpt:  " << globalOptSum / NUM_INSTANCES << " ms\n";
+            cout << "Seq:      " << globalSeqSum / NUM_INSTANCES << " ms\n";
+            cout << "SeqOpt:   " << globalOptSum / NUM_INSTANCES << " ms\n";
             for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
                 cout << "Par(" << threadCounts[t_idx] << "):  "
                     << globalParSums[t_idx] / NUM_INSTANCES << " ms\n";
             }
-            cout << "GPU:     " << globalGPUSum / NUM_INSTANCES << " ms\n";
+            cout << "GPU:      " << globalGPUSum / NUM_INSTANCES << " ms\n";
 
         }
         cout << "\n";
     }
+
+    csvFile.close();
 
     return 0;
 }

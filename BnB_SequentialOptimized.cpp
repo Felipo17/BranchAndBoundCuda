@@ -6,12 +6,12 @@ using namespace std;
 
 namespace {
 
-    // Struktura reprezentuj¹ca pojedynczy wêze³ na stosie
-    // Zastêpuje argumenty przekazywane wczeœniej w rekurencji
+    // Struktura reprezentujaca pojedynczy wezel na stosie
+    // Zastepuje argumenty przekazywane wczesniej w rekurencji
     struct Node {
         int idx;
         int currentValue, currentWeight;
-        // konstruktor potrzebny do u¿ywania emplace_back zamiast push_back 
+        // konstruktor potrzebny do uzywania emplace_back zamiast push_back 
         Node(int i, int v, int w) : idx(i), currentValue(v), currentWeight(w) {}
     };
 
@@ -34,7 +34,7 @@ namespace {
             }
 
             // Greedy Initialization
-            // Szybkie znalezienie pierwszego sensownego rozwi¹zania algorytmem zach³annym
+            // Szybkie znalezienie pierwszego sensownego rozwiazania algorytmem zachlannym
             int cV = 0, cW = 0;
             for (const auto& item : data.items) {
                 if (cW + item.weight <= data.C) {
@@ -68,26 +68,26 @@ namespace {
             return bound;
         }
 
-        // G³ówna pêtla iteracyjna zamiast rekurencji
+        // Glowna petla iteracyjna zamiast rekurencji
         void solve() {
             vector<Node> stack;
-            // Rezerwujemy pamiêæ na n+1 wêz³ów w stosie
+            // Rezerwujemy pamiec na n+1 wezlow w stosie
             stack.reserve((size_t)data.n + 1);
 
-            // Wrzucamy korzeñ drzewa
+            // Wrzucamy korzen drzewa
             stack.emplace_back(0, 0.0, 0.0);
 
             while (!stack.empty()) {
-                // Pobieramy wêze³ ze szczytu stosu
+                // Pobieramy wezel ze szczytu stosu
                 Node node = stack.back();
                 stack.pop_back();
 
-                // Sprawdzamy czy to liœæ
+                // Sprawdzamy czy to lisc
                 if (node.idx == data.n) {
                     if (node.currentValue > globalBestValue) {
                         globalBestValue = node.currentValue;
                     }
-                    continue; // Wracamy do pêtli, bierzemy kolejny element ze stosu
+                    continue; // Wracamy do petli, bierzemy kolejny element ze stosu
                 }
 
                 // Odcinanie
@@ -96,12 +96,12 @@ namespace {
                 }
 
                 // Chcemy najpierw sprawdziæ wariant bierzemy
-                // ¯eby zosta³ zdjêty ze stosu jako pierwszy, musimy go wrzuciæ jako drugiego
+                // Zeby zostal zdjety ze stosu jako pierwszy, musimy go wrzucic jako drugiego
 
                 // Nie bierzemy przedmiotu
                 stack.emplace_back(node.idx + 1, node.currentValue, node.currentWeight);
 
-                // Bierzemy przedmiot (o ile siê zmieœci)
+                // Bierzemy przedmiot (o ile sie zmiesci)
                 int nextWeight = node.currentWeight + data.items[node.idx].weight;
                 if (nextWeight <= data.C) {
                     stack.emplace_back(node.idx + 1,

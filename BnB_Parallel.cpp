@@ -24,7 +24,7 @@ namespace {
 
         int globalBestValue;
         mutex bestValueMutex;
-        alignas(64) atomic<long long> tasksInFlight; // licznik zadañ, do wykrycia momentu zakoñczenia
+        alignas(64) atomic<long long> tasksInFlight; // licznik zadan, do wykrycia momentu zakonczenia
         alignas(64) atomic<bool> finished; // flaga zatrzymania
 
         // Tablice do optymalizacji obliczania Upper Bound
@@ -39,14 +39,14 @@ namespace {
         Solver(const ProblemData& d)
             : data(d), globalBestValue(0), tasksInFlight(0), finished(false) {
 
-            numThreads = omp_get_max_threads(); // ustalenie liczby w¹tków
+            numThreads = omp_get_max_threads(); // ustalenie liczby watkow
             if (numThreads < 1) numThreads = 1; // zabezpieczenie
 
-            // rezerwacja pamiêci
+            // rezerwacja pamieci
             queues.resize(numThreads);
             queueMutexes.resize(numThreads);
 
-            // Inicjalizacja kolejek i mutexów
+            // Inicjalizacja kolejek i mutexow
             for (int i = 0; i < numThreads; i++) {
                 queues[i] = make_unique<deque<Node>>();
                 queueMutexes[i] = make_unique<mutex>();
@@ -110,7 +110,7 @@ namespace {
         }
 
         void solve() {
-            // Wrzucamy korzeñ do kolejki w¹tku 0
+            // Wrzucamy korzen do kolejki watku 0
             queues[0]->emplace_back(0, 0, 0);
             tasksInFlight = 1;
 
@@ -118,7 +118,7 @@ namespace {
             {
                 int myID = omp_get_thread_num();
 
-                // rng do wyboru w¹tku od którego kradniemy
+                // rng do wyboru watku od ktorego kradniemy
                 mt19937 rng(myID + 1337);
                 uniform_int_distribution<int> dist(0, numThreads - 1);
 
@@ -128,7 +128,7 @@ namespace {
                 while (!finished) {
                     hasWork = false;
 
-                    // Próba pobrania ze swojej kolejki (LIFO)
+                    // Proba pobrania ze swojej kolejki (LIFO)
                     if (queueMutexes[myID]->try_lock()) {
                         if (!queues[myID]->empty()) {
                             currentNode = queues[myID]->back();
@@ -138,13 +138,13 @@ namespace {
                         queueMutexes[myID]->unlock();
                     }
 
-                    // Sprawdzenie czy jest co kraœæ jeszcze
+                    // Sprawdzenie czy jest co krasc jeszcze
                     if (!hasWork) {
                         if (tasksInFlight == 0) {
                             break;
                         }
 
-                        // Je¿eli jest co kraœæ, to losuje od kogo i próbuje ukraœæ (FIFO)
+                        // Jezeli jest co krasc, to losuje od kogo i próbuje ukrasc (FIFO)
                         int victimID = dist(rng);
                         if (victimID != myID) {
                             if (queueMutexes[victimID]->try_lock()) {
@@ -167,12 +167,12 @@ namespace {
                         if (diff != 0) {
                             long long prev = atomic_fetch_add(&tasksInFlight, diff);
                             if (prev + diff == 0) {
-                                finished = true; // Je¿eli to by³o ostatnie zadanie to zakoñcz algorytm
+                                finished = true; // Jezeli to bylo ostatnie zadanie to zakoncz algorytm
                             }
                         }
                     }
                     else {
-                        // Odpoczynek dla procesora, krótka pauza
+                        // Odpoczynek dla procesora, krotka pauza
                         this_thread::yield();
                     }
                 }
@@ -180,7 +180,7 @@ namespace {
         }
 
         int processNode(const Node& node, int myID) {
-            // Sprawdzamy czy to liœæ
+            // Sprawdzamy czy to lisc
             if (node.idx == data.n) {
                 updateBestValue(node.currentValue);
                 return 0;
@@ -221,7 +221,7 @@ namespace {
     };
 }
 
-// Funkcja dostêpna publicznie
+// Funkcja dostepna publicznie
 int solveParallel(const ProblemData& data) {
     Solver solver(data);
     solver.solve();
