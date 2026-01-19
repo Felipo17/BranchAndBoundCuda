@@ -44,7 +44,7 @@ ProblemData generateProblem(int n, DataType type, int seed = 42) {
             if (v < 1) v = 1;
             break;
         case STRONGLY_CORRELATED:
-            v = w + 10.0;
+            v = w + 10;
             break;
         }
 
@@ -102,11 +102,12 @@ int main() {
     vector<TestConfig> configs = {
         {25, 50, 1}, {30, 50, 1},
         {32, 20, 1}, {35, 20, 1},
-        {38, 10, 1}, {40, 10, 1}
+        {38, 10, 1}, {40, 10, 1},
+        {45, 10, 1}, {50, 10, 1},
     };
 
     vector<DataType> types = { STRONGLY_CORRELATED };
-    vector<int> threadCounts = { 12 };
+    vector<int> threadCounts = { 4, 6, 12 };
 
     cout << fixed << setprecision(5);
     cout << "Testowane liczby watkow: ";
@@ -140,9 +141,9 @@ int main() {
                 for (int r = 0; r < REPEAT_COUNT; r++) {
 
                     // Sekwencyjny
-                    double tSeq = measureTime([&]() { solveSequential(data); });
-                    instSeqTime += tSeq;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";
+                    //double tSeq = measureTime([&]() { solveSequential(data); });
+                    //instSeqTime += tSeq;
+                    //csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";
 
                     // Sekwencyjny Zoptymalizowany
                     double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
@@ -150,19 +151,19 @@ int main() {
                     csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";
 
                     // Równolegly
-                    /*for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
+                    for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
                         int th = threadCounts[t_idx];
                         omp_set_num_threads(th);
 
                         double tPar = measureTime([&]() { solveParallel(data); });
                         instParTimes[t_idx] += tPar;
                         csvFile << n << "," << typeStr << "," << i << "," << r << ",Parallel," << th << "," << tPar << "\n";
-                    }*/
+                    }
 
                     // GPU
-                    double tGPU = measureTime([&]() { solveGPU(data); });
-                    instGPUTime += tGPU;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
+                    //double tGPU = measureTime([&]() { solveGPU(data); });
+                    //instGPUTime += tGPU;
+                    //csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
                 }
 
                 double avgInstSeq = instSeqTime / REPEAT_COUNT;
