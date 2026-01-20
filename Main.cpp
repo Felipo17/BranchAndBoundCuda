@@ -16,7 +16,7 @@ enum DataType {
     STRONGLY_CORRELATED
 };
 
-// Funkcja pomocnicza do generowania danych
+// Funkcja do generowania danych
 ProblemData generateProblem(int n, DataType type, int seed = 42) {
     ProblemData data;
     data.n = n;
@@ -54,7 +54,7 @@ ProblemData generateProblem(int n, DataType type, int seed = 42) {
         totalWeight += (long long)w;
     }
 
-    data.C = totalWeight * 0.5;
+    data.C = totalWeight / 2;
 
     // Sortowanie malejaco po ratio
     sort(data.items.begin(), data.items.end(),
@@ -77,10 +77,10 @@ double measureTime(Func func) {
 
 static string typeToString(DataType t) {
     switch (t) {
-    case UNCORRELATED: return "uncorrelated";
-    case WEAKLY_CORRELATED: return "weakly_correlated";
-    case STRONGLY_CORRELATED: return "strongly_correlated";
-    default: return "unknown";
+        case UNCORRELATED: return "uncorrelated";
+        case WEAKLY_CORRELATED: return "weakly_correlated";
+        case STRONGLY_CORRELATED: return "strongly_correlated";
+        default: return "unknown";
     }
 }
 
@@ -98,21 +98,17 @@ int main() {
     ofstream csvFile("results.csv");
     csvFile << "Size,Type,InstanceID,Repetition,Algorithm,Threads,TimeMS\n";
 
-    // PARAMETRY BADANIA
+    // parametry badania
     vector<TestConfig> configs = {
-        {25, 50, 1}, {30, 50, 1},
-        {32, 20, 1}, {35, 20, 1},
-        {38, 10, 1}, {40, 10, 1},
-        {45, 10, 1}, {50, 10, 1},
+        {25, 50, 10}, {30, 50, 10},
+        {32, 20, 5}, {35, 20, 5},
+        {38, 10, 2}, {40, 10, 2},
     };
 
     vector<DataType> types = { STRONGLY_CORRELATED };
-    vector<int> threadCounts = { 4, 6, 12 };
+    vector<int> threadCounts = { 1, 2, 4, 6, 8, 12 };
 
     cout << fixed << setprecision(5);
-    cout << "Testowane liczby watkow: ";
-    for (int t : threadCounts) cout << t << " ";
-    cout << "\n\n";
 
     for (auto type : types) {
         string typeStr = typeToString(type);
@@ -127,8 +123,8 @@ int main() {
 
             double globalSeqSum = 0;
             double globalOptSum = 0;
-            double globalGPUSum = 0;
             vector<double> globalParSums(threadCounts.size(), 0.0);
+            double globalGPUSum = 0;
 
             for (int i = 0; i < NUM_INSTANCES; i++) {
                 ProblemData data = generateProblem(n, type, i + (n * 100));
@@ -166,20 +162,15 @@ int main() {
                     //csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
                 }
 
-                double avgInstSeq = instSeqTime / REPEAT_COUNT;
-                double avgInstOpt = instOptTime / REPEAT_COUNT;
-
-                globalSeqSum += avgInstSeq;
-                globalOptSum += avgInstOpt;
-                globalGPUSum += instGPUTime / REPEAT_COUNT;
-
                 // Wypisanie wyników dla pojedynczej instancji
-                cout << i + 1 << ": Seq=" << avgInstSeq << "ms | Opt=" << avgInstOpt << "ms";
+                globalSeqSum += instSeqTime / REPEAT_COUNT;
+                globalOptSum += instOptTime / REPEAT_COUNT;
+                cout << i + 1 << ": Seq=" << instSeqTime / REPEAT_COUNT << "ms | Opt=" << instOptTime / REPEAT_COUNT << "ms";
                 for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
-                    double avgPar = instParTimes[t_idx] / REPEAT_COUNT;
-                    globalParSums[t_idx] += avgPar;
-                    cout << " | Par(" << threadCounts[t_idx] << ")=" << avgPar << "ms";
+                    globalParSums[t_idx] += instParTimes[t_idx] / REPEAT_COUNT;
+                    cout << " | Par(" << threadCounts[t_idx] << ")=" << instParTimes[t_idx] / REPEAT_COUNT << "ms";
                 }
+                globalGPUSum += instGPUTime / REPEAT_COUNT;
                 cout << " | GPU =" << (instGPUTime / REPEAT_COUNT) << "ms\n";
             }
             cout << "SREDNIA:\n";

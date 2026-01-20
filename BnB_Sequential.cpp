@@ -7,19 +7,18 @@ using namespace std;
 namespace {
 
     // Struktura reprezentujaca pojedynczy wezel na stosie
-    // Zastepuje argumenty przekazywane wczesniej w rekurencji
     struct Node {
         int idx;
-        double currValue, currWeight;
+        int currValue, currWeight;
     };
 
-    // Obliczanie górnego oszacowania
+    // Obliczanie gornego oszacowania
     //__declspec(noinline)
-    double upperBound(int idx, double currValue, double currWeight, const ProblemData& data) {
-        if (currWeight > data.C) return 0; // warunek sprawdzajacy czy przekroczyliœmy pojemnosc plecaka
+    int upperBound(int idx, int currValue, int currWeight, const ProblemData& data) {
+        if (currWeight > data.C) return 0; // warunek sprawdzajacy czy przekroczylismy pojemnosc plecaka
 
-        double bound = currValue;
-        double remaining = data.C - currWeight;
+        int bound = currValue;
+        int remaining = data.C - currWeight;
 
         for (int i = idx; i < data.n; i++) {
             // jesli przedmiot sie miesci to go bierzemy w pelni
@@ -29,7 +28,7 @@ namespace {
             }
             // jezli sie nie miesci to bierzemy ulamek
             else {
-                bound += data.items[i].ratio * remaining;
+                bound += (int)((double)data.items[i].ratio * remaining);
                 break;
             }
         }
@@ -38,14 +37,14 @@ namespace {
 }
 
 // Funkcja DFS
-double solveSequential(const ProblemData& data) {
-    double bestValue = 0;
+int solveSequential(const ProblemData& data) {
+    int bestValue = 0;
 
     // Jawny stos zamiast rekurencji
     vector<Node> stack;
 
     // Wrzucamy stan poczatkowy
-    stack.push_back({ 0, 0.0, 0.0 });
+    stack.push_back({ 0, 0, 0 });
 
     while (!stack.empty()) {
         // Pobieramy wezel ze szczytu stosu
@@ -63,11 +62,8 @@ double solveSequential(const ProblemData& data) {
             continue;
         }
 
-        // gorne oszacowanie
-        double ub = upperBound(node.idx, node.currValue, node.currWeight, data);
-
         // jesli oszacowanie jest gorsze niz to co mamy to porzucamy rozwijanie tej galezi drzewa
-        if (ub <= bestValue) continue;
+        if (upperBound(node.idx, node.currValue, node.currWeight, data) <= bestValue) continue;
 
         // 1 galaz - pominiecie przedmiotu
         stack.push_back({ node.idx + 1, node.currValue, node.currWeight });

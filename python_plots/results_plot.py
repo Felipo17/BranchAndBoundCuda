@@ -85,24 +85,6 @@ def plot_speedup_bar(speedup_df, output_dir):
     plt.close()
 
 
-def plot_correlation_impact(df, output_dir):
-    """
-    Wykres 3: Wpływ korelacji danych na czas wykonania (Boxplot).
-    """
-    plt.figure()
-    sns.boxplot(data=df, x="Type", y="TimeMS", hue="Algorithm")
-    
-    # POPRAWKI metod plt
-    plt.yscale("log")
-    plt.title("Rozkład czasów zależnie od korelacji danych")
-    plt.ylabel("Czas [ms] (log)")
-    plt.xlabel("Typ danych")
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'correlation_impact.png'))
-    plt.close()
-
-
 def plot_heatmap_table(df, output_dir):
     """
     Wykres 4: Heatmapa (tabela kolorów) ze średnimi czasami.
@@ -131,5 +113,4 @@ if __name__ == "__main__":
     plot_results(df, output_dir)
     plot_scalability_log(df, output_dir)
     plot_speedup_bar(prepare_speedup_data(df), output_dir)
-    plot_correlation_impact(df, output_dir)
     plot_heatmap_table(df, output_dir)

@@ -7,7 +7,6 @@ using namespace std;
 namespace {
 
     // Struktura reprezentujaca pojedynczy wezel na stosie
-    // Zastepuje argumenty przekazywane wczesniej w rekurencji
     struct Node {
         int idx;
         int currentValue, currentWeight;
@@ -19,14 +18,14 @@ namespace {
         const ProblemData& data;
         int globalBestValue;
 
-        // Tablice do optymalizacji obliczania Upper Bound
+        // Tablice do optymalizacji obliczania ub
         vector<int> prefWeight, prefValue;
 
         Solver(const ProblemData& d) : data(d), globalBestValue(0) {
-            // Prekomputacja sum prefiksowych (do obliczania ub)
+            // Prekomputacja sum prefiksowych do obliczania ub
             int n = data.n;
-            prefWeight.resize((size_t)n + 1, 0.0);
-            prefValue.resize((size_t)n + 1, 0.0);
+            prefWeight.resize((size_t)n + 1, 0);
+            prefValue.resize((size_t)n + 1, 0);
 
             for (int i = 0; i < n; i++) {
                 prefWeight[i + 1] = prefWeight[i] + data.items[i].weight;
@@ -45,37 +44,36 @@ namespace {
             }
             globalBestValue = cV;
         }
-        //__forceinline 
-        __declspec(noinline)
-            double upperBound(int idx, int currentValue, int currentWeight) {
+        __forceinline 
+        //__declspec(noinline)
+        int upperBound(int idx, int currentValue, int currentWeight) {
             int remainingCap = data.C - currentWeight;
 
-            if (remainingCap <= 0) return currentValue;
-            if (idx >= data.n) return currentValue;
+            if (remainingCap <= 0) return (double)currentValue;
+            if (idx >= data.n) return (double)currentValue;
 
             auto it = upper_bound(prefWeight.begin() + idx, prefWeight.end(), remainingCap + prefWeight[idx]);
 
             int breakIndex = (int)distance(prefWeight.begin(), it) - 1;
 
-            double bound = (double)currentValue + (double)(prefValue[breakIndex] - prefValue[idx]);
+            int bound = (currentValue + prefValue[breakIndex] - prefValue[idx]);
 
             if (breakIndex < data.n) {
                 int weightTakenSoFar = prefWeight[breakIndex] - prefWeight[idx];
-                int spaceLeft = remainingCap - weightTakenSoFar;
-                bound += double(spaceLeft) * data.items[breakIndex].ratio;
+                bound += (int)((double)(remainingCap - weightTakenSoFar) * data.items[breakIndex].ratio);
             }
 
             return bound;
         }
 
-        // Glowna petla iteracyjna zamiast rekurencji
+        // Glowna petla iteracyjna
         void solve() {
             vector<Node> stack;
             // Rezerwujemy pamiec na n+1 wezlow w stosie
             stack.reserve((size_t)data.n + 1);
 
             // Wrzucamy korzen drzewa
-            stack.emplace_back(0, 0.0, 0.0);
+            stack.emplace_back(0, 0, 0);
 
             while (!stack.empty()) {
                 // Pobieramy wezel ze szczytu stosu
@@ -95,7 +93,7 @@ namespace {
                     continue;
                 }
 
-                // Chcemy najpierw sprawdziæ wariant bierzemy
+                // Chcemy najpierw sprawdzic wariant bierzemy
                 // Zeby zostal zdjety ze stosu jako pierwszy, musimy go wrzucic jako drugiego
 
                 // Nie bierzemy przedmiotu

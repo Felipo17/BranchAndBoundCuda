@@ -1,4 +1,4 @@
-#include "Common.h"
+﻿#include "Common.h"
 #include <algorithm>
 #include <vector>
 #include <deque>
@@ -13,22 +13,26 @@ using namespace std;
 
 namespace {
 
+    // Struktura reprezentujaca pojedynczy wezel na stosie
     struct Node {
         int idx;
         int currentValue, currentWeight;
+        // konstruktor potrzebny do uzywania emplace_back zamiast push_back 
         Node(int i, int v, int w) : idx(i), currentValue(v), currentWeight(w) {}
     };
 
     class Solver {
         const ProblemData& data;
-
-        atomic<int> globalBestValue;
-
+        // zmienne atomowe, alignas(64) zapewnia ze sa one trzymane w ramie w roznych liniach cache
+        // dzieki czemu ograniczamy przeladowania pamieci watkow
+        alignas(64) atomic<int> globalBestValue;
         alignas(64) atomic<long long> tasksInFlight;
         alignas(64) atomic<bool> finished;
 
+        // Tablice do optymalizacji obliczania ub
         vector<int> prefWeight, prefValue;
 
+        // Stosy dla każdego watku
         vector<unique_ptr<deque<Node>>> queues;
         vector<unique_ptr<mutex>> queueMutexes;
         int numThreads;
@@ -51,6 +55,7 @@ namespace {
                 queueMutexes[i] = make_unique<mutex>();
             }
 
+            // Prekomputacja sum prefiksowych do obliczania ub
             int n = data.n;
             prefWeight.resize((size_t)n + 1, 0);
             prefValue.resize((size_t)n + 1, 0);
@@ -61,11 +66,12 @@ namespace {
             }
 
             // Greedy Initialization
+            // Szybkie znalezienie pierwszego sensownego rozwiazania algorytmem zachlannym
             int cV = 0, cW = 0;
             for (const auto& item : data.items) {
                 if (cW + item.weight <= data.C) {
-                    cV += (int)item.value;
-                    cW += (int)item.weight;
+                    cV += item.value;
+                    cW += item.weight;
                 }
                 else break;
             }
@@ -76,35 +82,36 @@ namespace {
             return globalBestValue.load();
         }
 
-        // __forceinline
-        __declspec(noinline)
-            double upperBound(int idx, int currentValue, int currentWeight) {
-            int remainingCap = (int)data.C - currentWeight;
+        __forceinline
+        //__declspec(noinline)
+        int upperBound(int idx, int currentValue, int currentWeight) {
+            int remainingCap = data.C - currentWeight;
 
-            if (remainingCap <= 0) return (double)currentValue;
-            if (idx >= data.n) return (double)currentValue;
+            if (remainingCap <= 0) return currentValue;
+            if (idx >= data.n) return currentValue;
 
             auto it = upper_bound(prefWeight.begin() + idx, prefWeight.end(), remainingCap + prefWeight[idx]);
 
             int breakIndex = (int)distance(prefWeight.begin(), it) - 1;
 
-            double bound = (double)currentValue + (double)(prefValue[breakIndex] - prefValue[idx]);
+            int bound = currentValue + prefValue[breakIndex] - prefValue[idx];
 
             if (breakIndex < data.n) {
                 int weightTakenSoFar = prefWeight[breakIndex] - prefWeight[idx];
-                bound += (double)(remainingCap - weightTakenSoFar) * data.items[breakIndex].ratio;
+                bound += (int)((double)(remainingCap - weightTakenSoFar) * data.items[breakIndex].ratio);
             }
             return bound;
         }
 
-        // Lock-free update (CAS loop)
+        // aktualizowanie lock-free (petla Compare-And-Swap)
         void updateBestValue(int val) {
             int currentBest = globalBestValue.load(memory_order_relaxed);
             while (val > currentBest) {
+                // compare_exchange_weak zwraca true jezeli globalBestValue == currentBest
+                // inaczej false +  wtedy przypisuje currentBest = globalBestValue
                 if (globalBestValue.compare_exchange_weak(currentBest, val, memory_order_relaxed)) {
                     break;
                 }
-                // Jesli sie nie udalo (ktos inny zmienil w miedzyczasie), currentBest jest automatycznie aktualizowany
             }
         }
 
@@ -113,14 +120,14 @@ namespace {
             localStack.clear();
             localStack.push_back(rootNode);
 
-            // Pobieramy raz lokalnie, zeby nie obciazac cache atomicami w kazdej iteracji,
-            // ale odswiezamy jesli nasza wartosc spadnie ponizej globalnej (rzadko).
+            // Pobieramy raz lokalnie
             int localBestCached = globalBestValue.load(memory_order_relaxed);
 
             while (!localStack.empty()) {
                 Node node = localStack.back();
                 localStack.pop_back();
 
+                // Jezeli jestesmy na lisciu to sprawdzamy i aktualizujemy najelpsza wartosc
                 if (node.idx == data.n) {
                     if (node.currentValue > localBestCached) {
                         updateBestValue(node.currentValue);
@@ -129,19 +136,15 @@ namespace {
                     continue;
                 }
 
-                // Wazne: Tu odczytujemy atomica (lub jego cache), zeby wiedziec o postepach innych watkow
+                // Odcinanie
                 if (upperBound(node.idx, node.currentValue, node.currentWeight) <= localBestCached) {
-                    // Od czasu do czasu warto odswiezyc cache z globala, jesli dlugo mielimy
-                    // W prostej wersji po prostu sprawdzamy upper bound vs localBestCached
-                    // Dla wiekszej precyzji mozna co X iteracji robic reload globalBestValue
                     continue;
                 }
 
-                // Synchronizacja "lazy" - jesli upper bound jest bardzo blisko localBest, sprawdzmy czy global sie nie zmienil
-                // (opcjonalna optymalizacja)
-
+                // Nie bierzemy przedmiotu
                 localStack.emplace_back(node.idx + 1, node.currentValue, node.currentWeight);
 
+                // Bierzemy przedmiot (o ile sie zmiesci)
                 int nextW = node.currentWeight + (int)data.items[node.idx].weight;
                 if (nextW <= data.C) {
                     localStack.emplace_back(
@@ -153,26 +156,27 @@ namespace {
             }
         }
 
+        // Glowna petla iteracyjna
         void solve() {
             queues[0]->emplace_back(0, 0, 0);
             tasksInFlight = 1;
 
-#pragma omp parallel
+            #pragma omp parallel
             {
                 int myID = omp_get_thread_num();
                 mt19937 rng(myID + 1337);
                 uniform_int_distribution<int> dist(0, numThreads - 1);
 
                 vector<Node> localStack;
-                localStack.reserve(200); // Wystarczy na glebokosc rekurencji
+                localStack.reserve((size_t)data.n + 1);
 
                 Node currentNode(0, 0, 0);
-                bool hasWork = false;
-
+                
+                bool hasWork;
                 while (!finished) {
                     hasWork = false;
 
-                    // Queue Access (LIFO)
+                    // branie ze swojego stosu (LIFO)
                     if (queueMutexes[myID]->try_lock()) {
                         if (!queues[myID]->empty()) {
                             currentNode = queues[myID]->back();
@@ -182,7 +186,7 @@ namespace {
                         queueMutexes[myID]->unlock();
                     }
 
-                    // Stealing (FIFO)
+                    // kradziez od innego watku (FIFO)
                     if (!hasWork) {
                         if (tasksInFlight == 0) break;
 
@@ -200,24 +204,21 @@ namespace {
                     }
 
                     if (hasWork) {
-                        // Warunek odciecia zalezy od tego ile zostalo do konca (n - idx)
-                        // Jesli poddrzewo jest male (np. < 20 elementow), robimy je lokalnie.
-                        int itemsLeft = data.n - currentNode.idx;
-
-                        if (itemsLeft <= SEQUENTIAL_CUTOFF_THRESHOLD) {
+                        // Jesli poddrzewo jest male, robimy je lokalnie
+                        if (data.n - currentNode.idx <= SEQUENTIAL_CUTOFF_THRESHOLD) {
                             processSubtreeLocal(currentNode, localStack);
 
                             long long prev = atomic_fetch_add(&tasksInFlight, -1);
-                            if (prev - 1 == 0) finished = true;
+                            if (prev == 1LL) finished = true;
                         }
+                        // Jesli duze, dzielimy na czesci dla innych watkow
                         else {
-                            // Jesli duze, dzielimy na czesci dla innych watkow
                             int childrenCount = processNodeParallel(currentNode, myID);
 
-                            long long diff = childrenCount - 1;
+                            long long diff = (long long)(childrenCount - 1);
                             if (diff != 0) {
                                 long long prev = atomic_fetch_add(&tasksInFlight, diff);
-                                if (prev + diff == 0) finished = true;
+                                if (prev + diff == 0LL) finished = true;
                             }
                         }
                     }
@@ -229,7 +230,7 @@ namespace {
         }
 
         int processNodeParallel(const Node& node, int myID) {
-            // Sprawdzamy bound na atomiku
+            // Odcinanie
             if (upperBound(node.idx, node.currentValue, node.currentWeight) <= globalBestValue.load(memory_order_relaxed)) {
                 return 0;
             }
@@ -239,10 +240,7 @@ namespace {
 
             lock_guard<mutex> lock(*queueMutexes[myID]);
 
-            // Preferujemy wrzucenie "Take" pozniej, zeby LIFO (back) wzielo je pierwsze
-            // (Heurystyka: przedmioty o wysokim ratio warto brac)
-
-            // 1. Don't take
+            // Nie bierzemy przedmiotu
             queues[myID]->emplace_back(
                 node.idx + 1,
                 node.currentValue,
@@ -250,7 +248,7 @@ namespace {
             );
             childrenCount++;
 
-            // 2. Take
+            // Bierzemy przedmiot (o ile sie zmiesci)
             if (nextW <= data.C) {
                 queues[myID]->emplace_back(
                     node.idx + 1,

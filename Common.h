@@ -8,14 +8,14 @@ struct Item {
     double ratio;
 };
 
-// Struktura trzymaj¹ca dane wejœciowe
+// Struktura trzymajaca dane wejsciowe
 struct ProblemData {
     int n;
-    double C; // Pojemnoœæ plecaka
+    int C; // Pojemnosc plecaka
     std::vector<Item> items;
 };
 
-double solveSequential(const ProblemData& data);
+int solveSequential(const ProblemData& data);
 
 int solveSequentialOptimized(const ProblemData& data);
 
