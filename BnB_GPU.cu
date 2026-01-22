@@ -40,9 +40,8 @@ __device__ __forceinline__ void atomicMaxInt(int* addr, int val) {
     }
 }
 
-// Prosty binary search na tablicy prefWeight.
+// Binary search na tablicy prefWeight.
 // Szuka największego indeksu k w [left, right], że prefWeight[k] <= target.
-// Zakładamy, że prefWeight jest niemalejące.
 __device__ __forceinline__
 int binarySearchPref(const int* prefWeight, int left, int right, int target) {
     int l = left;
@@ -55,7 +54,7 @@ int binarySearchPref(const int* prefWeight, int left, int right, int target) {
     return l;
 }
 
-// Upper Bound jak w wersji CPU (prefiksy + binary search + ułamek ostatniego)
+// Upper Bound binary search 
 __device__ __forceinline__
 double upperBoundBinary(
     int idx,
@@ -71,14 +70,13 @@ double upperBoundBinary(
     if (remaining <= 0) return (double)currValue;
     if (idx >= n) return (double)currValue;
 
-    // target w "skali prefiksów": prefWeight[idx] + remaining
+    
     int target = prefWeight[idx] + remaining;
 
-    // breakIndex = max k w [idx, n] s.t. prefWeight[k] <= target
-    // Uwaga: pref arrays mają rozmiar n+1, więc right = n.
+ 
     int breakIndex = binarySearchPref(prefWeight, idx, n, target);
 
-    // Całkowita suma wartości pełnych przedmiotów: prefValue[breakIndex] - prefValue[idx]
+    // Całkowita suma wartości pełnych przedmiotów
     double bound = (double)currValue + (double)(prefValue[breakIndex] - prefValue[idx]);
 
     // Ułamek kolejnego przedmiotu jeśli breakIndex < n
@@ -119,7 +117,6 @@ __global__ void bnbKernel(
     };
 
     // Lokalny stos DFS.
-    // Uwaga: przy n~40 to zwykle starczy, ale to nadal ograniczenie.
     Node stack[64];
     int sp = 0;
 
@@ -177,7 +174,6 @@ int solveGPU(const ProblemData& data) {
 
     const int C = (int)data.C;
 
-    // Bez sensu trzymać stałe 12, gdy n jest mniejsze.
     const int prefixDepth = (n < 12) ? n : 12;
 
     // Spłaszczenie danych wejściowych.
@@ -190,7 +186,6 @@ int solveGPU(const ProblemData& data) {
         h_ratios[i] = (double)data.items[i].ratio;
     }
 
-    // Prefiksy jak w CPU: rozmiar n+1
     std::vector<int> h_prefWeight(n + 1, 0);
     std::vector<int> h_prefValue(n + 1, 0);
 
