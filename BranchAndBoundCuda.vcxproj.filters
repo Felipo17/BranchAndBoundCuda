@@ -31,5 +31,8 @@
     <CudaCompile Include="BnB_GPU.cu">
       <Filter>Pliki źródłowe</Filter>
     </CudaCompile>
+    <CudaCompile Include="BnB_GPUOptimized.cu">
+      <Filter>Pliki źródłowe</Filter>
+    </CudaCompile>
   </ItemGroup>
 </Project>
