@@ -81,7 +81,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <CudaCompile Include="BnB_GPU.cu" />
-    <CudaCompile Include="BnB_GPUOptimized.cu" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Common.h" />
