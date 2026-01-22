@@ -129,19 +129,13 @@ int main() {
     // parametry badania
     vector<TestConfig> configs = {
         {25, 50, 10}, {30, 50, 10},
-        {32, 20, 5}, {35, 20, 5},
-        {38, 10, 2}, {40, 10, 2},
-        {45, 10, 1}, {50, 10, 1},
-        {45, 10, 1}, {50, 10, 1},
-        {45, 10, 1}, {50, 10, 1},
-    vector<int> threadCounts = { 1, 2, 4, 6, 8, 12 };
-        {45, 10, 1}, {50, 10, 1},
-        {45, 10, 1}, {50, 10, 1},
-        {45, 10, 1}, {50, 10, 1},
+        {32, 20, 5},  {35, 20, 5},
+        {38, 10, 2},  {40, 10, 2},
+        {45, 10, 1},  {50, 10, 1},
     };
 
     vector<DataType> types = { STRONGLY_CORRELATED };
-    vector<int> threadCounts = { 4, 6, 12 };
+    vector<int> threadCounts = { 1, 2, 4, 6, 8, 12 };
 
     cout << fixed << setprecision(5);
 

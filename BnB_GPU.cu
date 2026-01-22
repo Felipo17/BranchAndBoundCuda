@@ -151,13 +151,12 @@ __global__ void bnbKernel(
         bestSnapshot = atomicLoad(globalBest);
         if (ub <= (double)bestSnapshot) continue;
 
-        // Rozwinięcie: nie bierz / bierz.
-        // Preferencja kolejności jak u Ciebie (nie bierz, potem bierz) jest OK.
+        // Rozwinięcie węzła drzewa decyzyjnego.
+        // Najpierw gałąź bez wyboru przedmiotu, następnie gałąź z wyborem przedmiotu.
+
         if (sp + 2 <= 64) {
-            // Don't take
             stack[sp++] = { node.idx + 1, node.value, node.weight };
 
-            // Take (nie filtrujemy tu po C, bo i tak odfiltrujemy na górze pętli)
             stack[sp++] = {
                 node.idx + 1,
                 node.value + values[node.idx],
