@@ -166,24 +166,24 @@ int main() {
                 for (int r = 0; r < REPEAT_COUNT; r++) {
 
                     // Sekwencyjny
-                    double tSeq = measureTime([&]() { solveSequential(data); });
+                    /*double tSeq = measureTime([&]() { solveSequential(data); });
                     instSeqTime += tSeq;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";*/
 
                     // Sekwencyjny Zoptymalizowany
-                    double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
+                    /*double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
                     instOptTime += tOpt;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";*/
 
                     // Równolegly
-                    for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
+                    /*for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
                         int th = threadCounts[t_idx];
                         omp_set_num_threads(th);
 
                         double tPar = measureTime([&]() { solveParallel(data); });
                         instParTimes[t_idx] += tPar;
                         csvFile << n << "," << typeStr << "," << i << "," << r << ",Parallel," << th << "," << tPar << "\n";
-                    }
+                    }*/
 
                     // GPU
                     double tGPU = measureTime([&]() { solveGPU(data); });
