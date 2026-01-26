@@ -8,6 +8,9 @@
 #include <iomanip>
 #include <omp.h>
 
+// === DODANE: potrzebne do cudaFree (warm-up GPU)
+#include <cuda_runtime.h>
+
 using namespace std;
 
 enum DataType {
@@ -90,9 +93,34 @@ struct TestConfig {
     int repeats;
 };
 
+// === DODANE: rozgrzewka GPU (inicjalizacja CUDA, JIT, cache)
+void warmUpGPU() {
+    cudaFree(0);
+
+    ProblemData warmData = generateProblem(20, STRONGLY_CORRELATED, 123);
+
+    for (int i = 0; i < 5; i++) {
+        solveGPU(warmData);
+    }
+}
+
+// === DODANE: rozgrzewka wersji równoleg³ej CPU (cache, branch predictor)
+void warmUpParallelCPU() {
+    ProblemData warmData = generateProblem(20, STRONGLY_CORRELATED, 321);
+
+    omp_set_num_threads(4);
+    for (int i = 0; i < 3; i++) {
+        solveParallel(warmData);
+    }
+}
+
 int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
+
+    // === DODANE: rozgrzewki (NIE S¥ MIAR¥ CZASU)
+    warmUpGPU();
+    warmUpParallelCPU();
 
     // Otwarcie pliku do zapisu wynikow
     ofstream csvFile("results.csv");
@@ -101,8 +129,8 @@ int main() {
     // parametry badania
     vector<TestConfig> configs = {
         {25, 50, 10}, {30, 50, 10},
-        {32, 20, 5}, {35, 20, 5},
-        {38, 10, 2}, {40, 10, 2},
+        {32, 20, 5},  {35, 20, 5},
+        {38, 10, 2},  {40, 10, 2},
     };
 
     vector<DataType> types = { STRONGLY_CORRELATED };
@@ -137,29 +165,29 @@ int main() {
                 for (int r = 0; r < REPEAT_COUNT; r++) {
 
                     // Sekwencyjny
-                    //double tSeq = measureTime([&]() { solveSequential(data); });
-                    //instSeqTime += tSeq;
-                    //csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";
+                    /*double tSeq = measureTime([&]() { solveSequential(data); });
+                    instSeqTime += tSeq;
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";*/
 
                     // Sekwencyjny Zoptymalizowany
-                    double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
+                    /*double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
                     instOptTime += tOpt;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";*/
 
                     // Równolegly
-                    for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
+                    /*for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
                         int th = threadCounts[t_idx];
                         omp_set_num_threads(th);
 
                         double tPar = measureTime([&]() { solveParallel(data); });
                         instParTimes[t_idx] += tPar;
                         csvFile << n << "," << typeStr << "," << i << "," << r << ",Parallel," << th << "," << tPar << "\n";
-                    }
+                    }*/
 
                     // GPU
-                    //double tGPU = measureTime([&]() { solveGPU(data); });
-                    //instGPUTime += tGPU;
-                    //csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
+                    double tGPU = measureTime([&]() { solveGPU(data); });
+                    instGPUTime += tGPU;
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
                 }
 
                 // Wypisanie wyników dla pojedynczej instancji

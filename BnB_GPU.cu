@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-// Makro do sprawdzania błędów CUDA.
+// Makro do sprawdzania błędów CUDA
 #define CHECK_CUDA(err) do { \
     cudaError_t _e = (err); \
     if (_e != cudaSuccess) { \
@@ -16,172 +16,153 @@
     } \
 } while(0)
 
-// Struktura opisująca stan początkowy przeszukiwania.
-// Każdy taki stan odpowiada jednemu poddrzewu drzewa decyzyjnego.
+// Stan początkowy poddrzewa, od którego wątek zaczyna DFS
 struct GPUState {
-    int idx;     // Aktualny indeks przedmiotu
-    int value;   // Aktualna wartość rozwiązania
-    int weight;  // Aktualna waga rozwiązania
+    int idx;
+    int value;
+    int weight;
 };
 
-// Atomowy odczyt wartości z pamięci globalnej.
-__device__ __forceinline__ int atomicLoad(const int* addr) {
-    return atomicAdd((int*)addr, 0);
-}
-
-// Atomowa aktualizacja maksimum.
-__device__ __forceinline__ void atomicMaxInt(int* addr, int val) {
+// Atomowy update maksimum
+__device__ __forceinline__ int atomicMaxInt(int* addr, int val) {
     int old = *addr;
-    int assumed;
-
     while (val > old) {
-        assumed = old;
+        int assumed = old;
         old = atomicCAS(addr, assumed, val);
         if (old == assumed) break;
     }
+    return old;
 }
 
-// Funkcja obliczająca górne oszacowanie (upper bound).
-// Zakładane jest, że kolejne przedmioty mogą być dodawane w całości, a ostatni przedmiot może zostać dodany ułamkowo.
-__device__ double upperBoundFrac(
-    int idx,
-    int currValue,
-    int currWeight,
-    int C,
-    const int* weights,
-    const int* values,
-    const double* ratios,
-    int n
+// Górne oszacowanie (relaksacja ułamkowa)
+__device__ __forceinline__ int upperBound(
+    int idx, int currValue, int currWeight, int C,
+    const int* weights, const int* values, const double* ratios, int n
 ) {
-    if (currWeight > C) return 0.0;
-
     int remaining = C - currWeight;
-    double bound = (double)currValue;
+    if (remaining <= 0) return currValue;
+    if (idx >= n) return currValue;
 
-    for (int i = idx; i < n; i++) {
-        if (weights[i] <= remaining) {
-            remaining -= weights[i];
+    int bound = currValue;
+
+    for (int i = idx; i < n && remaining > 0; i++) {
+        int w = weights[i];
+        if (w <= remaining) {
+            remaining -= w;
             bound += values[i];
         }
         else {
-            bound += ratios[i] * remaining;
+            bound += (int)((double)remaining * ratios[i]);
             break;
         }
     }
     return bound;
 }
 
-// Kernel realizujący algorytm Branch and Bound.
-// Każdy wątek:
-// - rozpoczyna przeszukiwanie od innego stanu początkowego,
-// - wykonuje lokalne przeszukiwanie drzewa decyzyjnego w głąb,
-// - oblicza upper bound i odcina niepotrzebne gałęzie,
-// - aktualizuje globalnie najlepsze znalezione rozwiązanie.
+// Kernel Branch and Bound
+// Każdy wątek przeszukuje swoje poddrzewo metodą DFS na lokalnym stosie
 __global__ void bnbKernel(
-    const GPUState* states,
-    int numStates,
-    int C,
-    const int* weights,
-    const int* values,
-    const double* ratios,
-    int n,
+    const GPUState* states, int numStates, int C,
+    const int* weights, const int* values, const double* ratios, int n,
     int* globalBest
 ) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= numStates) return;
 
     GPUState root = states[tid];
-
     if (root.weight > C) return;
 
-    // Lokalna struktura węzła używana na stosie DFS.
+    // Węzeł na stosie DFS
     struct Node {
-        int idx;
+        short idx;
         int value;
         int weight;
     };
 
-    // Lokalny stos do przeszukiwania drzewa w głąb.
-    Node stack[64];
+    // Lokalny stos DFS
+    Node stack[32];
     int sp = 0;
 
-    // Umieszczenie stanu początkowego na stosie.
-    stack[sp++] = { root.idx, root.value, root.weight };
+    stack[sp++] = { (short)root.idx, root.value, root.weight };
+
+    // Buforujemy najlepszy wynik lokalnie
+    int localBest = atomicAdd(globalBest, 0);
 
     while (sp > 0) {
         Node node = stack[--sp];
 
-        // Odrzucenie węzłów przekraczających pojemność plecaka.
         if (node.weight > C) continue;
 
-        // Aktualizacja globalnego najlepszego rozwiązania.
-        int bestSnapshot = atomicLoad(globalBest);
-        if (node.value > bestSnapshot) {
-            atomicMaxInt(globalBest, node.value);
-            bestSnapshot = node.value;
+        // Liść: aktualizujemy wynik
+        if (node.idx >= n) {
+            if (node.value > localBest) {
+                atomicMaxInt(globalBest, node.value);
+                localBest = atomicAdd(globalBest, 0);
+            }
+            continue;
         }
 
-        // Jeśli wszystkie przedmioty zostały rozpatrzone, to nie kontynuujemy.
-        if (node.idx >= n) continue;
+        // Co jakiś czas odświeżamy lokalny best, żeby uwzględniać postępy innych wątków bez ciągłych odczytów funkcji atomowych
+        if ((sp & 7) == 0) {
+            localBest = atomicAdd(globalBest, 0);
+        }
 
-        // Obliczenie górnego oszacowania dla bieżącego węzła.
-        double ub = upperBoundFrac(
-            node.idx,
-            node.value,
-            node.weight,
-            C,
-            weights,
-            values,
-            ratios,
-            n
-        );
+        int ub = upperBound(node.idx, node.value, node.weight, C, weights, values, ratios, n);
+        if (ub <= localBest) continue;
 
-        // Odcinanie gałęzi, które nie mogą poprawić aktualnego wyniku.
-        bestSnapshot = atomicLoad(globalBest);
-        if (ub <= (double)bestSnapshot) continue;
+        // Ochrona przed przepełnieniem stosu
+        if (sp + 2 > 32) continue;
 
-        // Rozwinięcie węzła węzły są dodawane na stos w celu dalszego przeszukiwania.
-        if (sp + 2 <= 64) {
-            // Gałąź gdzie przedmiot nie jest brany.
-            stack[sp++] = { node.idx + 1, node.value, node.weight };
+        // Rozwinięcie węzła 1) gałąź nie bierzemy wrzucamy jako pierwszą, 2) gałąź bierzemy jako drugą
+        stack[sp++] = { (short)(node.idx + 1), node.value, node.weight };
 
-            // Gałąź gdzie przedmiot jest brany.
+        int newWeight = node.weight + weights[node.idx];
+        if (newWeight <= C) {
             stack[sp++] = {
-                node.idx + 1,
+                (short)(node.idx + 1),
                 node.value + values[node.idx],
-                node.weight + weights[node.idx]
+                newWeight
             };
         }
     }
 }
 
-// Funkcja uruchamiająca algorytm, drzewo przeszukiwania jest wstępnie dzielone na poddrzewa, które następnie są przeszukiwane równolegle przez wątki GPU.
 int solveGPU(const ProblemData& data) {
     const int n = data.n;
     if (n <= 0) return 0;
 
     const int C = (int)data.C;
 
-    // Głębokość prefiksu decyzyjnego generowanego na CPU gdzie każdy prefiks odpowiada jednemu poddrzewu dla GPU.
-    const int prefixDepth = 12;
+    // Głębokość prefiksu generowanego na CPU (liczba stanów startowych = 2^prefixDepth)
+    int prefixDepth = 9;
+    if (n >= 40) prefixDepth = 10;
+    if (n < 30)  prefixDepth = std::min(n, 9);
 
-    // Spłaszczenie danych wejściowych do tablic.
+    // Spłaszczenie danych
     std::vector<int> h_weights(n), h_values(n);
     std::vector<double> h_ratios(n);
-
     for (int i = 0; i < n; i++) {
         h_weights[i] = data.items[i].weight;
         h_values[i] = data.items[i].value;
         h_ratios[i] = data.items[i].ratio;
     }
 
-    // Generowanie stanów początkowych dla GPU.
+    // Inicjalizacja zachłanna jako dolne ograniczenie
+    int greedyBest = 0, greedyWeight = 0;
+    for (int i = 0; i < n; i++) {
+        if (greedyWeight + h_weights[i] <= C) {
+            greedyWeight += h_weights[i];
+            greedyBest += h_values[i];
+        }
+    }
+
+    // Generowanie stanów startowych + odcinanie już na CPU
     std::vector<GPUState> h_states;
     const int totalMasks = 1 << prefixDepth;
+    h_states.reserve((size_t)totalMasks);
 
     for (int mask = 0; mask < totalMasks; mask++) {
-        int w = 0;
-        int v = 0;
+        int w = 0, v = 0;
 
         for (int i = 0; i < prefixDepth; i++) {
             if (mask & (1 << i)) {
@@ -189,16 +170,36 @@ int solveGPU(const ProblemData& data) {
                 v += h_values[i];
             }
         }
+        if (w > C) continue;
 
-        if (w <= C) {
+        // Upper bound dla stanu startowego liczony na CPU
+        int remaining = C - w;
+        int ub = v;
+        for (int i = prefixDepth; i < n && remaining > 0; i++) {
+            if (h_weights[i] <= remaining) {
+                remaining -= h_weights[i];
+                ub += h_values[i];
+            }
+            else {
+                ub += (int)((double)remaining * h_ratios[i]);
+                break;
+            }
+        }
+
+        // Jeśli  bound nie przebija greedy, nie wysyła tego na GPU
+        if (ub > greedyBest) {
             h_states.push_back({ prefixDepth, v, w });
         }
     }
 
-    // Alokacja pamięci na GPU.
-    int* d_weights, * d_values, * d_best;
-    double* d_ratios;
-    GPUState* d_states;
+    if (h_states.empty()) return greedyBest;
+
+    // Alokacja GPU.
+    int* d_weights = nullptr;
+    int* d_values = nullptr;
+    double* d_ratios = nullptr;
+    GPUState* d_states = nullptr;
+    int* d_best = nullptr;
 
     CHECK_CUDA(cudaMalloc(&d_weights, sizeof(int) * n));
     CHECK_CUDA(cudaMalloc(&d_values, sizeof(int) * n));
@@ -206,37 +207,33 @@ int solveGPU(const ProblemData& data) {
     CHECK_CUDA(cudaMalloc(&d_states, sizeof(GPUState) * h_states.size()));
     CHECK_CUDA(cudaMalloc(&d_best, sizeof(int)));
 
-    // Kopiowanie danych na GPU.
     CHECK_CUDA(cudaMemcpy(d_weights, h_weights.data(), sizeof(int) * n, cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(d_values, h_values.data(), sizeof(int) * n, cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(d_ratios, h_ratios.data(), sizeof(double) * n, cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(d_states, h_states.data(), sizeof(GPUState) * h_states.size(), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(d_best, &greedyBest, sizeof(int), cudaMemcpyHostToDevice));
 
-    // Inicjalizacja najlepszego wyniku.
-    int zero = 0;
-    CHECK_CUDA(cudaMemcpy(d_best, &zero, sizeof(int), cudaMemcpyHostToDevice));
+    // Uruchamianie kernela w batchach zamiast ucinać liczbę bloków przetwarzamy wszystkie stany porcjami
+    const int threads = 256;
+    const int MAX_BLOCKS = 512;
+    const int MAX_STATES_PER_LAUNCH = MAX_BLOCKS * threads;
 
-    // Uruchomienie kernela.
-    int threads = 256;
-    int blocks = ((int)h_states.size() + threads - 1) / threads;
+    for (int offset = 0; offset < (int)h_states.size(); offset += MAX_STATES_PER_LAUNCH) {
+        int batch = std::min(MAX_STATES_PER_LAUNCH, (int)h_states.size() - offset);
+        int blocks = (batch + threads - 1) / threads;
 
-    bnbKernel << <blocks, threads >> > (
-        d_states,
-        (int)h_states.size(),
-        C,
-        d_weights,
-        d_values,
-        d_ratios,
-        n,
-        d_best
-        );
-    CHECK_CUDA(cudaDeviceSynchronize());
+        bnbKernel << <blocks, threads >> > (
+            d_states + offset, batch, C,
+            d_weights, d_values, d_ratios, n, d_best
+            );
 
-    // Pobranie wyniku z GPU.
-    int result;
+        CHECK_CUDA(cudaGetLastError());
+        CHECK_CUDA(cudaDeviceSynchronize());
+    }
+
+    int result = 0;
     CHECK_CUDA(cudaMemcpy(&result, d_best, sizeof(int), cudaMemcpyDeviceToHost));
 
-    // Zwolnienie pamięci GPU.
     cudaFree(d_weights);
     cudaFree(d_values);
     cudaFree(d_ratios);
