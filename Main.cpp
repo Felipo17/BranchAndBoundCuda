@@ -8,7 +8,7 @@
 #include <iomanip>
 #include <omp.h>
 
-// === DODANE: potrzebne do cudaFree (warm-up GPU)
+// potrzebne do cudaFree (warm-up GPU)
 #include <cuda_runtime.h>
 
 using namespace std;
@@ -93,7 +93,7 @@ struct TestConfig {
     int repeats;
 };
 
-// === DODANE: rozgrzewka GPU (inicjalizacja CUDA, JIT, cache)
+// rozgrzewka GPU (inicjalizacja CUDA, JIT, cache)
 void warmUpGPU() {
     cudaFree(0);
 
@@ -104,7 +104,7 @@ void warmUpGPU() {
     }
 }
 
-// === DODANE: rozgrzewka wersji równoleg³ej CPU (cache, branch predictor)
+// rozgrzewka wersji równoleglej CPU
 void warmUpParallelCPU() {
     ProblemData warmData = generateProblem(20, STRONGLY_CORRELATED, 321);
 
@@ -118,8 +118,8 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    // === DODANE: rozgrzewki (NIE S¥ MIAR¥ CZASU)
-    warmUpGPU();
+    // rozgrzewki
+    //warmUpGPU();
     warmUpParallelCPU();
 
     // Otwarcie pliku do zapisu wynikow
@@ -170,24 +170,24 @@ int main() {
                     csvFile << n << "," << typeStr << "," << i << "," << r << ",Sequential,1," << tSeq << "\n";*/
 
                     // Sekwencyjny Zoptymalizowany
-                    /*double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
+                    double tOpt = measureTime([&]() { solveSequentialOptimized(data); });
                     instOptTime += tOpt;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";*/
+                    csvFile << n << "," << typeStr << "," << i << "," << r << ",SequentialOptimized,1," << tOpt << "\n";
 
                     // Równolegly
-                    /*for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
+                    for (size_t t_idx = 0; t_idx < threadCounts.size(); t_idx++) {
                         int th = threadCounts[t_idx];
                         omp_set_num_threads(th);
 
                         double tPar = measureTime([&]() { solveParallel(data); });
                         instParTimes[t_idx] += tPar;
                         csvFile << n << "," << typeStr << "," << i << "," << r << ",Parallel," << th << "," << tPar << "\n";
-                    }*/
+                    }
 
                     // GPU
-                    double tGPU = measureTime([&]() { solveGPU(data); });
-                    instGPUTime += tGPU;
-                    csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
+                    //double tGPU = measureTime([&]() { solveGPU(data); });
+                    //instGPUTime += tGPU;
+                    //csvFile << n << "," << typeStr << "," << i << "," << r << ",GPU,0," << tGPU << "\n";
                 }
 
                 // Wypisanie wyników dla pojedynczej instancji
